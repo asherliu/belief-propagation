@@ -61,6 +61,12 @@ xmlXPathNodeEval(xmlNodePtr node, const xmlChar *str, xmlXPathContextPtr ctx) {
 
 #endif
 
+/**
+ * Gets the list of XML elements in the document
+ * @param doc The document being parsed
+ * @param xpath The XPATH expression to evaluate
+ * @return The list of XML nodes found
+ */
 static xmlXPathObjectPtr get_node_set(xmlDocPtr doc, xmlChar * xpath){
     xmlXPathContextPtr context;
     xmlXPathObjectPtr result;
@@ -83,6 +89,13 @@ static xmlXPathObjectPtr get_node_set(xmlDocPtr doc, xmlChar * xpath){
     return result;
 }
 
+/**
+ * Gets the list of XML elements in the XML node subtree
+ * @param doc The XML document being parsed
+ * @param sub_xpath The XPATH expression to evaluate
+ * @param node The subtree to analyze
+ * @return The list of nodes in the subtree
+ */
 static xmlXPathObjectPtr get_subnode_set(xmlDocPtr doc, xmlChar * sub_xpath, xmlNodePtr node){
     xmlXPathContextPtr context;
     xmlXPathObjectPtr result;
@@ -105,6 +118,11 @@ static xmlXPathObjectPtr get_subnode_set(xmlDocPtr doc, xmlChar * sub_xpath, xml
     return result;
 }
 
+/**
+ * Counts the number of graph nodes in the XML document
+ * @param doc The XML document
+ * @return The count of graph nodes
+ */
 static unsigned int count_number_of_nodes(xmlDocPtr doc){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
@@ -123,6 +141,11 @@ static unsigned int count_number_of_nodes(xmlDocPtr doc){
     return num_nodes;
 }
 
+/**
+ * Counts the number of edges in the XML document
+ * @param doc The XML document being analyzed
+ * @return The count of the edges
+ */
 static unsigned int count_number_of_edges(xmlDocPtr doc){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
@@ -140,7 +163,14 @@ static unsigned int count_number_of_edges(xmlDocPtr doc){
     return num_edges;
 }
 
-static unsigned int add_variables_to_graph(xmlDocPtr doc, xmlNodePtr node, Graph_t graph, unsigned int node_index){
+/**
+ * Adds the state names to the graph
+ * @param doc The XML document to parse
+ * @param node The current XML node
+ * @param graph The graph to add the belief
+ * @return 
+ */
+static unsigned int add_variables_to_graph(xmlDocPtr doc, xmlNodePtr node, Graph_t graph){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
     unsigned int num_variables, char_index, num_vertices;
@@ -172,15 +202,23 @@ static unsigned int add_variables_to_graph(xmlDocPtr doc, xmlNodePtr node, Graph
     return num_variables;
 }
 
-static void add_node_to_graph(xmlDocPtr doc, xmlNodePtr node, Graph_t graph, unsigned int node_index){
+/**
+ * Adds the graph node data to the graph
+ * @param doc The XML document being parsed
+ * @param node The XML node within in the document
+ * @param graph The graph to add the node data to
+ */
+static void add_node_to_graph(xmlDocPtr doc, xmlNodePtr node, Graph_t graph){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
     unsigned int num_variables;
     char buffer[CHAR_BUFFER_SIZE];
     xmlChar *value;
 
-    num_variables = add_variables_to_graph(doc, node, graph, node_index);
+    // get the number of beliefs for the node
+    num_variables = add_variables_to_graph(doc, node, graph);
 
+    // get the name of the node
     result = get_subnode_set(doc, (xmlChar *)".//NAME/text()", node);
     assert(result);
     node_set = result->nodesetval;
@@ -188,30 +226,47 @@ static void add_node_to_graph(xmlDocPtr doc, xmlNodePtr node, Graph_t graph, uns
 
     value = xmlNodeListGetString(doc, node_set->nodeTab[0], 0);
     strncpy(buffer, (char *)value, CHAR_BUFFER_SIZE);
+    if(xmlStrlen(value) > CHAR_BUFFER_SIZE){
+        buffer[CHAR_BUFFER_SIZE - 1] = '\0';
+    }
 
     xmlFree(value);
     xmlXPathFreeObject(result);
 
+    // add the node
     graph_add_node(graph, num_variables, buffer);
 }
 
+/**
+ * Adds the graph node data to the graph
+ * @param doc The XML document being parsed
+ * @param graph The graph to add the nodes to
+ */
 static void add_nodes_to_graph(xmlDocPtr doc, Graph_t graph){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
     int i;
 
+    // get the nodes
     result = get_node_set(doc, (xmlChar *)"//NETWORK/VARIABLE");
     assert(result);
 
     node_set = result->nodesetval;
 
+    // add them
     for(i = 0; i < node_set->nodeNr; ++i){
-        add_node_to_graph(doc, node_set->nodeTab[i], graph, (unsigned int)i);
+        add_node_to_graph(doc, node_set->nodeTab[i], graph);
     }
 
     xmlXPathFreeObject(result);
 }
 
+/**
+ * Get the size needed for the probabilities
+ * @param doc The XML document being parsed
+ * @param definition The XML node being looked at
+ * @return The count of the probabilities
+ */
 static unsigned int count_probabilities(xmlDocPtr doc, xmlNodePtr definition){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
@@ -240,7 +295,14 @@ static unsigned int count_probabilities(xmlDocPtr doc, xmlNodePtr definition){
     return count;
 }
 
-static void build_probabilities(xmlDocPtr doc, xmlNodePtr definition, float * probabilities, unsigned int length){
+/**
+ * Fills in the belief probability table
+ * @param doc The XML document
+ * @param definition The node within the XML document
+ * @param belief The beliefs being updated
+ * @param length The size of the belief
+ */
+static void build_probabilities(xmlDocPtr doc, xmlNodePtr definition, struct belief *belief, unsigned int length){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
     xmlChar * value;
@@ -255,11 +317,12 @@ static void build_probabilities(xmlDocPtr doc, xmlNodePtr definition, float * pr
     node_set = result->nodesetval;
     assert(node_set->nodeNr > 0);
 
+    // add the state probabilities to the nodes
     value = xmlNodeListGetString(doc, node_set->nodeTab[node_set->nodeNr - 1], 0);
     split = strtok((char *)value, " \t\n\r");
     while(split != NULL && i < length){
         if(strlen(split) > 0){
-            sscanf(split, "%f", &probabilities[i]);
+            sscanf(split, "%f", &belief->data[i]);
             i++;
         }
         split = strtok(NULL, " \t\n\r");
@@ -269,16 +332,24 @@ static void build_probabilities(xmlDocPtr doc, xmlNodePtr definition, float * pr
     xmlXPathFreeObject(result);
 }
 
+/**
+ * Fill in the edge dest name into the buffer
+ * @param doc The XML document being parsed
+ * @param definition The node being looked at
+ * @param buffer The string buffer
+ */
 static void fill_in_for_node_name(xmlDocPtr doc, xmlNodePtr definition, char * buffer){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
     xmlChar * value;
 
+    // get the XML node
     result = get_subnode_set(doc, (xmlChar *)".//FOR/text()", definition);
     assert(result);
     node_set = result->nodesetval;
     assert(node_set->nodeNr == 1);
 
+    // fill in the name
     value = xmlNodeListGetString(doc, node_set->nodeTab[0], 0);
     strncpy(buffer, (char *)value, CHAR_BUFFER_SIZE);
 
@@ -286,11 +357,16 @@ static void fill_in_for_node_name(xmlDocPtr doc, xmlNodePtr definition, char * b
     xmlXPathFreeObject(result);
 }
 
-
+/**
+ * Update the observed nodes in the graph
+ * @param doc The XML document to parse
+ * @param definition The node within the XML document to analyze
+ * @param graph The graph to update
+ */
 static void add_observed_node_to_graph(xmlDocPtr doc, xmlNodePtr definition, Graph_t graph){
     xmlXPathObjectPtr result;
     char dest_node_name[CHAR_BUFFER_SIZE];
-    float probabilities[MAX_STATES];
+    struct belief belief;
     unsigned int num_probabilities;
     unsigned int dest_node_index;
     unsigned int i;
@@ -298,24 +374,33 @@ static void add_observed_node_to_graph(xmlDocPtr doc, xmlNodePtr definition, Gra
     // check if edge or observed node
     result = get_subnode_set(doc, (xmlChar *)".//GIVEN/text()", definition);
     if(result == NULL){
+        // initialize beliefs
         for(i = 0; i < MAX_STATES; ++i){
-            probabilities[i] = 0.0f;
+            belief.data[i] = 0.0f;
         }
 
+        // get the observed probabilities
         num_probabilities = count_probabilities(doc, definition);
         assert(num_probabilities < MAX_STATES);
-        build_probabilities(doc, definition, probabilities, num_probabilities);
+        build_probabilities(doc, definition, &belief, num_probabilities);
 
+        // find the node
         fill_in_for_node_name(doc, definition, dest_node_name);
         dest_node_index = find_node_by_name(dest_node_name, graph);
 
-        graph_set_node_state(graph, dest_node_index, num_probabilities, probabilities);
+        // update the node
+        graph_set_node_state(graph, dest_node_index, num_probabilities, &belief);
     }
     else{
         xmlXPathFreeObject(result);
     }
 }
 
+/**
+ * Reverse the probabilitie list
+ * @param probability_table The list of probabilities
+ * @param num_probabilities The size of the list
+ */
 static void reverse_probability_table(float * probability_table, int num_probabilities){
     int i;
     float temp;
@@ -327,19 +412,25 @@ static void reverse_probability_table(float * probability_table, int num_probabi
     }
 }
 
+/**
+ * Add the edge data in the XML document to the graph
+ * @param doc The XML document being parsed
+ * @param definition The XML node being looked at
+ * @param graph The graph to update
+ */
 static void add_edges_to_graph(xmlDocPtr doc, xmlNodePtr definition, Graph_t graph){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
     char dest_node_name[CHAR_BUFFER_SIZE];
     char src_node_name[CHAR_BUFFER_SIZE];
-    float * total_probabilities;
+    struct belief *new_belief;
     unsigned int num_probabilities;
     unsigned int j, k, offset, slice, index, delta, next, diff, dest_index, src_index;
     int i;
     xmlChar * value;
 
-    float sub_graph[MAX_STATES * MAX_STATES];
-    float transpose[MAX_STATES * MAX_STATES];
+    struct joint_probability sub_graph;
+    struct joint_probability transpose;
 
     // check if edge or observed node
     result = get_subnode_set(doc, (xmlChar *)".//GIVEN/text()", definition);
@@ -349,21 +440,26 @@ static void add_edges_to_graph(xmlDocPtr doc, xmlNodePtr definition, Graph_t gra
     assert(result);
     node_set = result->nodesetval;
 
+    // add the source node to the graph
     num_probabilities = count_probabilities(doc, definition);
-    total_probabilities = (float *)malloc(sizeof(float) * num_probabilities);
-    assert(total_probabilities);
-    build_probabilities(doc, definition, total_probabilities, num_probabilities);
+    new_belief = (struct belief *)malloc(sizeof(struct belief));
+    assert(new_belief);
+    build_probabilities(doc, definition, new_belief, num_probabilities);
 
     fill_in_for_node_name(doc, definition, dest_node_name);
     dest_index = find_node_by_name(dest_node_name, graph);
     //assert(dest_index >= 0);
     //assert(dest_index < graph->current_num_vertices);
-    slice = num_probabilities / graph->node_num_vars[dest_index];
+    slice = num_probabilities / graph->node_states[dest_index].size;
 
+    // fill in joint probability
     offset = 1;
     for(i = node_set->nodeNr - 1; i >= 0; --i){
         value = xmlNodeListGetString(doc, node_set->nodeTab[i], 0);
         strncpy(src_node_name, (char *)value, CHAR_BUFFER_SIZE);
+        if(xmlUTF8Strlen(value) > CHAR_BUFFER_SIZE){
+            src_node_name[CHAR_BUFFER_SIZE - 1] = '\0';
+        }
         xmlFree(value);
 
         src_index = find_node_by_name(src_node_name, graph);
@@ -372,17 +468,17 @@ static void add_edges_to_graph(xmlDocPtr doc, xmlNodePtr definition, Graph_t gra
         //assert(src_index >= 0);
         //assert(src_index < graph->current_num_vertices);
 
-        delta = graph->node_num_vars[src_index];
+        delta = graph->node_states[src_index].size;
 
-        for(k = 0; k < graph->node_num_vars[dest_index]; ++k){
-            for(j = 0; j < graph->node_num_vars[src_index]; ++j){
-                sub_graph[MAX_STATES * j + k] = 0.0;
-                transpose[MAX_STATES * k + j] = 0.0;
+        for(k = 0; k < graph->node_states[dest_index].size; ++k){
+            for(j = 0; j < graph->node_states[src_index].size; ++j){
+                sub_graph.data[j][k] = 0.0;
+                transpose.data[k][j] = 0.0;
             }
         }
 
-        for(k = 0; k < graph->node_num_vars[dest_index]; ++k){
-            for(j = 0; j < graph->node_num_vars[src_index]; ++j){
+        for(k = 0; k < graph->node_states[dest_index].size; ++k){
+            for(j = 0; j < graph->node_states[src_index].size; ++j){
                 diff = 0;
                 index = j * offset + diff;
                 while(index <= slice) {
@@ -390,7 +486,7 @@ static void add_edges_to_graph(xmlDocPtr doc, xmlNodePtr definition, Graph_t gra
                     next = (j + 1) * offset + diff;
                     //printf("Current Index: %d; Next: %d; Delta: %d; Diff: %d\n", index, next, delta, diff);
                     while (index < next) {
-                        sub_graph[j * MAX_STATES + k] += total_probabilities[index + k * slice];
+                        sub_graph.data[j][k] += new_belief->data[index + k * slice];
                         index++;
                     }
                     index += delta * offset;
@@ -399,25 +495,30 @@ static void add_edges_to_graph(xmlDocPtr doc, xmlNodePtr definition, Graph_t gra
             }
         }
 
-        for(j = 0; j < graph->node_num_vars[src_index]; ++j){
-            for(k = 0; k < graph->node_num_vars[dest_index]; ++k){
-                transpose[k * MAX_STATES + j] = sub_graph[j * MAX_STATES + k];
+        for(j = 0; j < graph->node_states[src_index].size; ++j){
+            for(k = 0; k < graph->node_states[dest_index].size; ++k){
+                transpose.data[k][j] = sub_graph.data[j][k];
             }
         }
 
-        graph_add_edge(graph, src_index, dest_index, graph->node_num_vars[src_index], graph->node_num_vars[dest_index], sub_graph);
+        graph_add_edge(graph, src_index, dest_index, graph->node_states[src_index].size, graph->node_states[dest_index].size, &sub_graph);
         if(graph->observed_nodes[src_index] != 1 ){
-            graph_add_edge(graph, dest_index, src_index, graph->node_num_vars[dest_index], graph->node_num_vars[src_index], transpose);
+            graph_add_edge(graph, dest_index, src_index, graph->node_states[dest_index].size, graph->node_states[src_index].size, &transpose);
         }
 
 
-        offset *= graph->node_num_vars[src_index];
+        offset *= graph->node_states[src_index].size;
     }
 
-    free(total_probabilities);
+    free(new_belief);
     xmlXPathFreeObject(result);
 }
 
+/**
+ * Add the observed nodes and edges to the graph
+ * @param doc The XML document being parsed
+ * @param graph The graph to update
+ */
 static void add_definitions_to_graph(xmlDocPtr doc, Graph_t graph){
     xmlXPathObjectPtr result;
     xmlNodeSetPtr node_set;
@@ -438,6 +539,11 @@ static void add_definitions_to_graph(xmlDocPtr doc, Graph_t graph){
     xmlXPathFreeObject(result);
 }
 
+/**
+ * Parses the XML file and generates a graph from it
+ * @param file_name The path to the file to parse
+ * @return A graph holding the data
+ */
 Graph_t parse_xml_file(const char * file_name){
     xmlDocPtr  doc;
     xmlParserCtxtPtr context;
